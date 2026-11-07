@@ -1,0 +1,96 @@
+name: Cache site images in repository
+
+on:
+  push:
+    paths:
+      - .github/workflows/cache-site-images.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  cache-images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Download, verify and localize photographs
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, time, urllib.request, urllib.error
+
+          root = Path('assets')
+          root.mkdir(exist_ok=True)
+          sources = [
+              ('manicure', 'https://images.unsplash.com/photo-1604654894610-df63bc536371?fit=crop&w=1400&q=84&fm=jpg', 'photo-1604654894610-df63bc536371'),
+              ('pedicure', 'https://images.unsplash.com/photo-1519014816548-bf5fe059798b?fit=crop&w=1100&q=84&fm=jpg', 'photo-1519014816548-bf5fe059798b'),
+              ('design', 'https://images.unsplash.com/photo-1610992015732-2449b76344bc?fit=crop&w=1100&q=84&fm=jpg', 'photo-1610992015732-2449b76344bc'),
+              ('nail-gallery', 'https://images.unsplash.com/photo-1632345031435-8727f6897d53?fit=crop&w=1100&q=84&fm=jpg', 'photo-1632345031435-8727f6897d53'),
+              ('studio-1', 'https://avatars.mds.yandex.net/get-altay/16368192/2a0000019aa36f874ebbe3e2f3fbff188e8f/XXL_height', '2a0000019aa36f874ebbe3e2f3fbff188e8f'),
+              ('studio-2', 'https://avatars.mds.yandex.net/get-altay/6119709/2a000001804e116a36a0294fd27e4c653716/XXL_height', '2a000001804e116a36a0294fd27e4c653716'),
+          ]
+          fallback = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 1100"><defs><linearGradient id="g" x2="1" y2="1"><stop stop-color="#eddfdc"/><stop offset=".5" stop-color="#c9a3a5"/><stop offset="1" stop-color="#6a4459"/></linearGradient></defs><rect width="900" height="1100" fill="url(#g)"/><circle cx="670" cy="320" r="370" fill="#f8f0ed" opacity=".26"/><path d="M80 920C260 750 480 1060 860 690" fill="none" stroke="#f7e8df" stroke-width="3" opacity=".65"/><g fill="none" stroke="#f9efec" stroke-width="7" opacity=".7" transform="translate(340 400) scale(2)"><path d="M50 49C37 31 37 17 50 8c13 9 13 23 0 41ZM51 50C66 35 79 32 90 43 85 58 71 61 51 50ZM49 50C34 35 21 32 10 43c5 15 19 18 39 7ZM50 50C67 56 74 67 69 83c-16 2-25-10-19-33ZM50 50C33 56 26 67 31 83c16 2 25-10 19-33Z"/><circle cx="50" cy="50" r="7"/></g></svg>'''
+          (root / 'fallback.svg').write_text(fallback,encoding='utf-8')
+          html_path = Path('index.html')
+          html = html_path.read_text(encoding='utf-8')
+          done = {}
+          for name, url, token in sources:
+              binary = None
+              for trial in range(3):
+                  try:
+                      req = urllib.request.Request(url, headers={
+                         'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/125.0 Safari/537.36',
+                         'Accept': 'image/jpeg,image/png,image/webp,image/*;q=0.9',
+                         'Referer': 'https://yandex.ru/' if name.startswith('studio') else 'https://unsplash.com/',
+                      })
+                      with urllib.request.urlopen(req, timeout=30) as resp:
+                          candidate = resp.read(8_000_000)
+                      if candidate.startswith(b'\xff\xd8\xff') and len(candidate) > 5000:
+                          binary, ext = candidate, 'jpg'
+                      elif candidate.startswith(b'\x89PNG') and len(candidate) > 5000:
+                          binary, ext = candidate, 'png'
+                      elif candidate[:4] == b'RIFF' and candidate[8:12] == b'WEBP' and len(candidate) > 5000:
+                          binary, ext = candidate, 'webp'
+                      else:
+                          raise ValueError('Image data did not validate')
+                      break
+                  except Exception as e:
+                      print('Download attempt', trial+1, 'failed for',name,str(e)[:200])
+                      time.sleep(2)
+              if binary:
+                  filename = name + '.' + ext
+                  (root / filename).write_bytes(binary)
+                  print('Saved', filename, len(binary), 'bytes')
+              else:
+                  filename = name + '.svg'
+                  (root / filename).write_text(fallback, encoding='utf-8')
+                  print('Saved local illustration (photo unavailable):', filename)
+              done[name] = filename
+              if name.startswith('studio'):
+                  html = re.sub(r'https://avatars\.mds\.yandex\.net/[^"\s<>]*'+token+r'[^"\s<>]*', 'assets/'+filename, html)
+              else:
+                  html = re.sub(r'https://images\.unsplash\.com/'+token+r'[^"\s<>]*', 'assets/'+filename, html)
+
+          html = re.sub(r'onerror="[^"]*"', '''onerror="this.onerror=null;this.src='assets/fallback.svg'"''', html)
+          for photo in ('studio-1','studio-2'):
+              if done[photo].endswith('.svg'):
+                  html=html.replace('alt="Фотография студии Каталея из Яндекс Карт"','alt="Декоративная иллюстрация студии"',1)
+          html_path.write_text(html,encoding='utf-8')
+          assert 'images.unsplash.com/photo-' not in html and 'avatars.mds.yandex.net/get-altay/' not in html, 'Missed image urls'
+          assert len([p for p in root.iterdir() if p.is_file()]) == 7, 'Expected 6 image files plus fallback'
+          print('All site images are repository assets:',list(p.name for p in root.iterdir()))
+          PY
+      - name: Commit and publish local image assets
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html assets/
+          if ! git diff --cached --quiet; then
+            git commit -m "Store all website images locally in assets"
+            git push
+          fi
