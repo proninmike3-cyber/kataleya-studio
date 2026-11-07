@@ -4,12 +4,14 @@
 
 ## Структура
 
-- `index.html` — полностью автономная страница: HTML, CSS, JavaScript, SVG-иконки и запасные изображения встроены в один файл.
-- Фотографии загружаются по внешним HTTPS-ссылкам; при недоступности части изображений предусмотрены SVG-заглушки.
+- `index.html` — HTML, CSS, JavaScript и SVG-иконки.
+- `assets/` — все 6 фотографий сайта хранятся непосредственно в репозитории, без загрузки с Unsplash или Яндекс Карт.
+- `assets/fallback.svg` — локальная запасная иллюстрация, если изображение не удалось отобразить.
+- `.github/workflows/cache-site-images.yml` — одноразовая автоматизация импорта исходных фотографий.
 
 ## GitHub Pages
 
-Откройте **Settings → Pages → Build and deployment**, выберите **Deploy from a branch**, затем ветку **main**, папку **/(root)** и нажмите **Save**. Публикация появится по адресу https://proninmike3-cyber.github.io/kataleya-studio/ .
+Сайт опубликован через GitHub Pages из ветки **main**. Адрес: https://proninmike3-cyber.github.io/kataleya-studio/ .
 
 ## Важно перед запуском от имени студии
 
